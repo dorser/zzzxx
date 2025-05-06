@@ -1,0 +1,44 @@
+name: 'TODO: Fill the gadget name'
+description: 'TODO: Fill the gadget description'
+homepageURL: 'TODO: Fill the gadget homepage URL'
+documentationURL: 'TODO: Fill the gadget documentation URL'
+sourceURL: 'TODO: Fill the gadget source code URL'
+datasources:
+  dns:
+    fields:
+      cwd:
+        annotations:
+          description: 'TODO: Fill field description'
+      data:
+        annotations:
+          description: 'TODO: Fill field description'
+      data_len:
+        annotations:
+          description: 'TODO: Fill field description'
+      dns_off:
+        annotations:
+          description: 'TODO: Fill field description'
+      dst:
+        annotations:
+          description: 'TODO: Fill field description'
+      exepath:
+        annotations:
+          description: 'TODO: Fill field description'
+      latency_ns_raw:
+        annotations:
+          description: 'TODO: Fill field description'
+      netns_id:
+        annotations:
+          description: 'TODO: Fill field description'
+      pkt_type_raw:
+        annotations:
+          description: 'TODO: Fill field description'
+      proc:
+        annotations:
+          description: 'TODO: Fill field description'
+      src:
+        annotations:
+          description: 'TODO: Fill field description'
+      timestamp_raw:
+        annotations:
+          description: 'TODO: Fill field description'

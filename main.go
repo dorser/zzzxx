@@ -5,9 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/quay/claircore/pkg/tarfs"
 	orasoci "oras.land/oras-go/v2/content/oci"
@@ -17,40 +15,40 @@ import (
 	gadgetcontext "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-context"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
 	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/ebpf"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/localmanager"
 	ocihandler "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/oci-handler"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/simple"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/runtime/local"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/utils/host"
 )
 
 //go:embed build/trace_exec.tar
 var traceExecBytes []byte
 
+//go:embed build/trace_dns.tar
+var traceDnsBytes []byte
+
 const (
-	gadgetImage = "github.com/dorser/zzzxxx/gadgets/trace_exec"
-	opPriority  = 50000
+	traceExecGadgetImage = "github.com/dorser/zzzxxx/gadgets/trace_exec"
+	traceDnsGadgetImage  = "github.com/dorser/zzzxxx/gadgets/trace_dns"
 )
 
-type execTracer struct {
-	ctx     context.Context
-	runtime *local.Runtime
-}
-
-func (t *execTracer) initRuntime() error {
-	t.runtime = local.New()
-	if err := t.runtime.Init(nil); err != nil {
-		return fmt.Errorf("runtime init: %w", err)
+func initRuntime() (*local.Runtime, error) {
+	runtime := local.New()
+	if err := runtime.Init(nil); err != nil {
+		return nil, fmt.Errorf("runtime init: %w", err)
 	}
-	return nil
+	return runtime, nil
 }
 
-func (t *execTracer) createOCITarget() (*orasoci.ReadOnlyStore, error) {
-	reader := bytes.NewReader(traceExecBytes)
+func createOCITarget(ctx context.Context, gadgetBytes []byte) (*orasoci.ReadOnlyStore, error) {
+	reader := bytes.NewReader(gadgetBytes)
 	fs, err := tarfs.New(reader)
 	if err != nil {
 		return nil, err
 	}
 
-	target, err := orasoci.NewFromFS(t.ctx, fs)
+	target, err := orasoci.NewFromFS(ctx, fs)
 	if err != nil {
 		return nil, fmt.Errorf("getting oci store from bytes: %w", err)
 	}
@@ -58,13 +56,51 @@ func (t *execTracer) createOCITarget() (*orasoci.ReadOnlyStore, error) {
 	return target, nil
 }
 
-func (t *execTracer) createJSONOperator() operators.DataOperator {
-	return simple.New("jsonOperator",
+func createGadgetContext(ctx context.Context, gadgetBytes []byte, gadgetImageName string, dataOperators []operators.DataOperator) (*gadgetcontext.GadgetContext, error) {
+	target, err := createOCITarget(ctx, gadgetBytes)
+	if err != nil {
+		return nil, fmt.Errorf("creating oci target: %w", err)
+	}
+
+	gadgetCtx := gadgetcontext.New(
+		ctx,
+		gadgetImageName,
+		gadgetcontext.WithDataOperators(append([]operators.DataOperator{ocihandler.OciHandler}, dataOperators...)...),
+		gadgetcontext.WithOrasReadonlyTarget(target),
+	)
+
+	return gadgetCtx, nil
+}
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runtime, err := initRuntime()
+	if err != nil {
+		fmt.Errorf("initializing ig runtime: %s", err)
+	}
+	defer runtime.Close()
+
+	jsonOperator := simple.New("jsonOperator",
 		simple.OnInit(func(gadgetCtx operators.GadgetContext) error {
 			for _, d := range gadgetCtx.GetDataSources() {
 				jsonFormatter, _ := igjson.New(d,
 					igjson.WithShowAll(true))
 
+				d.Subscribe(func(source datasource.DataSource, data datasource.Data) error {
+					jsonOutput := jsonFormatter.Marshal(data)
+					fmt.Printf("%s\n", jsonOutput)
+					return nil
+				}, 50000)
+			}
+			return nil
+		}),
+	)
+
+	traceExecDataOperator := simple.New("jsonOperator",
+		simple.OnInit(func(gadgetCtx operators.GadgetContext) error {
+			for _, d := range gadgetCtx.GetDataSources() {
 				argsF := d.GetField("args")
 				argsSize := d.GetField("args_size")
 
@@ -95,57 +131,41 @@ func (t *execTracer) createJSONOperator() operators.DataOperator {
 						fmt.Printf("setting args: %s", err)
 					}
 
-					jsonOutput := jsonFormatter.Marshal(data)
-					fmt.Printf("%s\n", jsonOutput)
 					return nil
-				}, opPriority); err != nil {
+				}, 40000); err != nil {
 					return fmt.Errorf("subscribing to data sources: %w", err)
 				}
 			}
 			return nil
 		}),
 	)
-}
 
-func (t *execTracer) Run() error {
-	ctx, cancel := context.WithTimeout(t.ctx, time.Hour)
-	defer cancel()
-	t.ctx = ctx
+	host.Init(host.Config{})
+	localManagerOp := localmanager.LocalManagerOperator
+	localManagerParams := localManagerOp.GlobalParamDescs().ToParams()
 
-	if err := t.initRuntime(); err != nil {
-		return err
+	if err := localManagerOp.Init(localManagerParams); err != nil {
+		fmt.Errorf("init local manager: %w", err)
 	}
-	defer t.runtime.Close()
+	defer localManagerOp.Close()
 
-	target, err := t.createOCITarget()
+	execGadgetContext, err := createGadgetContext(ctx, traceExecBytes, traceExecGadgetImage, []operators.DataOperator{traceExecDataOperator, jsonOperator})
 	if err != nil {
-		return err
+		fmt.Printf("creating exec gadget context: %s", err)
 	}
 
-	gadgetCtx := gadgetcontext.New(
-		t.ctx,
-		gadgetImage,
-		gadgetcontext.WithDataOperators(ocihandler.OciHandler, t.createJSONOperator()),
-		gadgetcontext.WithOrasReadonlyTarget(target),
-	)
-
-	if err := t.runtime.RunGadget(gadgetCtx, nil, nil); err != nil {
-		return fmt.Errorf("running gadget: %w", err)
+	dnsGadgetContext, err := createGadgetContext(ctx, traceDnsBytes, traceDnsGadgetImage, []operators.DataOperator{localManagerOp, jsonOperator})
+	if err != nil {
+		fmt.Printf("creating dns gadget context: %s", err)
 	}
 
-	return nil
-}
-
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	execTracer := &execTracer{
-		ctx: ctx,
+	params := map[string]string{
+		"operator.LocalManager.host": "true",
 	}
 
-	if err := execTracer.Run(); err != nil {
-		fmt.Printf("running exec tracer: %s", err)
-		os.Exit(1)
-	}
+	go runtime.RunGadget(dnsGadgetContext, nil, params)
+
+	go runtime.RunGadget(execGadgetContext, nil, nil)
+
+	select {}
 }
