@@ -16,6 +16,7 @@
 #define BASE_EVENT_SIZE (size_t)(&((struct event *)0)->args)
 #define EVENT_SIZE(e) (BASE_EVENT_SIZE + e->args_size)
 #define LAST_ARG (FULL_MAX_ARGS_ARR - ARGSIZE)
+#define MAX_STRING_SIZE 512
 
 struct event
 {
@@ -32,6 +33,7 @@ struct event
   gadget_errno error_raw;
   int args_count;
   unsigned int args_size;
+  char exepath[MAX_STRING_SIZE];
   char cwd[MAX_STRING_SIZE];
   char args[FULL_MAX_ARGS_ARR];
 };
@@ -176,6 +178,12 @@ int ig_sched_exec(struct trace_event_raw_sched_process_exec *ctx)
     return 0;
 
   event->error_raw = 0;
+
+  struct file *exe_file = BPF_CORE_READ(task, mm, exe_file);
+	char *exepath = get_path_str(&exe_file->f_path);
+	bpf_probe_read_kernel_str(event->exepath,
+					  sizeof(event->exepath), exepath);
+  
   bpf_get_current_comm(&event->comm, sizeof(event->comm));
   if (parent != NULL)
   {
@@ -211,6 +219,10 @@ static __always_inline int exit_execve(void *ctx, int retval)
   goto cleanup;
 
   event->error_raw = -retval;
+
+  struct file *exe_file = BPF_CORE_READ(task, mm, exe_file);
+	char *exepath = get_path_str(&exe_file->f_path);
+	bpf_probe_read_kernel_str(event->exepath, sizeof(event->exepath), exepath);
   bpf_get_current_comm(&event->comm, sizeof(event->comm));
 
   if (parent != NULL)

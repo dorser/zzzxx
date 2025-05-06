@@ -24,6 +24,9 @@ datasources:
       error_raw:
         annotations:
           description: 'TODO: Fill field description'
+      exepath:
+        annotations:
+          description: 'TODO: Fill field description'
       gid:
         annotations:
           description: 'TODO: Fill field description'

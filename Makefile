@@ -1,7 +1,8 @@
 APP_NAME := zzzxx
 GOARCHS := amd64 arm64
 OUTPUT_DIR := dist
-LDFLAGS := -w -s -extldflags "-static"
+IG_VERSION=v0.40.0
+LDFLAGS := -X github.com/inspektor-gadget/inspektor-gadget/internal/version.version=${IG_VERSION} -w -s -extldflags "-static"
 TAG ?= latest
 GADGET_NAME ?= trace_exec
 CONTAINER_REPO ?= github.com/dorser/zzzxxx/gadgets/$(GADGET_NAME)
