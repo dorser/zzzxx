@@ -42,22 +42,29 @@ func NewTraceExecOperator() igoperators.DataOperator {
 		simple.OnInit(func(gadgetCtx igoperators.GadgetContext) error {
 			for _, d := range gadgetCtx.GetDataSources() {
 				argsF := d.GetField("args")
+				if argsF == nil {
+					return fmt.Errorf("args field not found in data source")
+				}
+
 				argsSize := d.GetField("args_size")
+				if argsSize == nil {
+					return fmt.Errorf("args_size field not found in data source")
+				}
 
 				if err := d.Subscribe(func(source datasource.DataSource, data datasource.Data) error {
 					argsBytes, err := argsF.Bytes(data)
 					if err != nil {
-						fmt.Printf("getting args: %s", err)
+						return fmt.Errorf("getting args bytes: %w", err)
 					}
 
-					argsSize, err := argsSize.Uint32(data)
+					argsSizeVal, err := argsSize.Uint32(data)
 					if err != nil {
-						fmt.Printf("getting args_size: %s", err)
+						return fmt.Errorf("getting args size: %w", err)
 					}
 
 					args := []string{}
 					buf := []byte{}
-					for i := 0; i < int(argsSize); i++ {
+					for i := 0; i < int(argsSizeVal); i++ {
 						c := argsBytes[i]
 						if c == 0 {
 							args = append(args, string(buf))
@@ -68,7 +75,7 @@ func NewTraceExecOperator() igoperators.DataOperator {
 					}
 
 					if err := argsF.Set(data, []byte(strings.Join(args, " "))); err != nil {
-						fmt.Printf("setting args: %s", err)
+						return fmt.Errorf("setting processed args: %w", err)
 					}
 
 					return nil
