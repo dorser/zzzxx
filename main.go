@@ -63,20 +63,27 @@ func main() {
 	jsonOperator := simple.New("jsonOperator",
 		simple.OnInit(func(gadgetCtx operators.GadgetContext) error {
 			for _, d := range gadgetCtx.GetDataSources() {
-				jsonFormatter, _ := igjson.New(d,
+				jsonFormatter, err := igjson.New(d,
 					igjson.WithShowAll(true))
+				if err != nil {
+					return fmt.Errorf("creating json formatter: %w", err)
+				}
 
-				d.Subscribe(func(source datasource.DataSource, data datasource.Data) error {
+				if err := d.Subscribe(func(source datasource.DataSource, data datasource.Data) error {
 					jsonOutput := jsonFormatter.Marshal(data)
-					fmt.Printf("%s\n", jsonOutput)
+					if jsonOutput != nil {
+						fmt.Printf("%s\n", jsonOutput)
+					}
 					return nil
-				}, 50000)
+				}, 50000); err != nil {
+					return fmt.Errorf("subscribing to data source: %w", err)
+				}
 			}
 			return nil
 		}),
 	)
 
-	traceExecDataOperator := simple.New("jsonOperator",
+	traceExecDataOperator := simple.New("traceExecOperator",
 		simple.OnInit(func(gadgetCtx operators.GadgetContext) error {
 			for _, d := range gadgetCtx.GetDataSources() {
 				argsF := d.GetField("args")
@@ -110,7 +117,7 @@ func main() {
 					}
 
 					return nil
-				}, 40000); err != nil {
+				}, 100); err != nil {
 					return fmt.Errorf("subscribing to data sources: %w", err)
 				}
 			}
