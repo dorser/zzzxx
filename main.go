@@ -1,18 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
-	"github.com/quay/claircore/pkg/tarfs"
-	orasoci "oras.land/oras-go/v2/content/oci"
-
+	"github.com/dorser/zzzxx/internal/gadget"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/datasource"
 	igjson "github.com/inspektor-gadget/inspektor-gadget/pkg/datasource/formatters/json"
-	gadgetcontext "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-context"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
 	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/ebpf"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/localmanager"
@@ -41,44 +40,23 @@ func initRuntime() (*local.Runtime, error) {
 	return runtime, nil
 }
 
-func createOCITarget(ctx context.Context, gadgetBytes []byte) (*orasoci.ReadOnlyStore, error) {
-	reader := bytes.NewReader(gadgetBytes)
-	fs, err := tarfs.New(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	target, err := orasoci.NewFromFS(ctx, fs)
-	if err != nil {
-		return nil, fmt.Errorf("getting oci store from bytes: %w", err)
-	}
-
-	return target, nil
-}
-
-func createGadgetContext(ctx context.Context, gadgetBytes []byte, gadgetImageName string, dataOperators []operators.DataOperator) (*gadgetcontext.GadgetContext, error) {
-	target, err := createOCITarget(ctx, gadgetBytes)
-	if err != nil {
-		return nil, fmt.Errorf("creating oci target: %w", err)
-	}
-
-	gadgetCtx := gadgetcontext.New(
-		ctx,
-		gadgetImageName,
-		gadgetcontext.WithDataOperators(append([]operators.DataOperator{ocihandler.OciHandler}, dataOperators...)...),
-		gadgetcontext.WithOrasReadonlyTarget(target),
-	)
-
-	return gadgetCtx, nil
-}
-
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Handle graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Println("Received shutdown signal")
+		cancel()
+	}()
+
 	runtime, err := initRuntime()
 	if err != nil {
-		fmt.Errorf("initializing ig runtime: %s", err)
+		fmt.Printf("initializing ig runtime: %s", err)
+		os.Exit(1)
 	}
 	defer runtime.Close()
 
@@ -145,18 +123,24 @@ func main() {
 	localManagerParams := localManagerOp.GlobalParamDescs().ToParams()
 
 	if err := localManagerOp.Init(localManagerParams); err != nil {
-		fmt.Errorf("init local manager: %w", err)
+		fmt.Printf("init local manager: %w", err)
+		os.Exit(1)
 	}
 	defer localManagerOp.Close()
 
-	execGadgetContext, err := createGadgetContext(ctx, traceExecBytes, traceExecGadgetImage, []operators.DataOperator{traceExecDataOperator, jsonOperator})
+	// Create gadget contexts using the new function
+	execGadgetContext, err := gadget.CreateContext(ctx, traceExecBytes, traceExecGadgetImage,
+		[]operators.DataOperator{ocihandler.OciHandler, traceExecDataOperator, jsonOperator})
 	if err != nil {
 		fmt.Printf("creating exec gadget context: %s", err)
+		os.Exit(1)
 	}
 
-	dnsGadgetContext, err := createGadgetContext(ctx, traceDnsBytes, traceDnsGadgetImage, []operators.DataOperator{localManagerOp, jsonOperator})
+	dnsGadgetContext, err := gadget.CreateContext(ctx, traceDnsBytes, traceDnsGadgetImage,
+		[]operators.DataOperator{ocihandler.OciHandler, localManagerOp, jsonOperator})
 	if err != nil {
 		fmt.Printf("creating dns gadget context: %s", err)
+		os.Exit(1)
 	}
 
 	params := map[string]string{
@@ -164,8 +148,8 @@ func main() {
 	}
 
 	go runtime.RunGadget(dnsGadgetContext, nil, params)
-
 	go runtime.RunGadget(execGadgetContext, nil, nil)
 
-	select {}
+	<-ctx.Done()
+	fmt.Println("Shutting down...")
 }
