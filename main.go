@@ -11,6 +11,7 @@ import (
 	"github.com/dorser/zzzxx/internal/gadget"
 	"github.com/dorser/zzzxx/internal/operators"
 	"github.com/dorser/zzzxx/internal/runtime"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/socketenricher"
 )
 
 //go:embed build/trace_exec.tar
@@ -48,6 +49,7 @@ func main() {
 	// Create operators
 	jsonOp := operators.NewJSONOperator()
 	traceExecOp := operators.NewTraceExecOperator()
+	traceDnsOp := operators.NewTraceDnsOperator()
 	ociOp := operators.NewOCIHandler()
 
 	// Initialize local manager
@@ -66,6 +68,8 @@ func main() {
 
 	dnsContextManager := gadget.NewContextManager([]operators.DataOperator{
 		ociOp,
+		traceDnsOp,
+		&socketenricher.SocketEnricher{},
 		localManagerOp,
 		jsonOp,
 	})
@@ -84,7 +88,8 @@ func main() {
 		Bytes:     traceDnsBytes,
 		ImageName: traceDnsGadgetImage,
 		Params: map[string]string{
-			"operator.LocalManager.host": "true",
+			"operator.LocalManager.host":          "true",
+			"operator.LocalManager.ContainerName": "",
 		},
 		Context: dnsContextManager,
 	})

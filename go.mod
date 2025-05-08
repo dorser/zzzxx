@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	github.com/inspektor-gadget/inspektor-gadget v0.40.0
 	github.com/quay/claircore v1.5.34
+	golang.org/x/net v0.39.0
 	oras.land/oras-go/v2 v2.5.0
 )
 
@@ -125,7 +126,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/exp v0.0.0-20250103183323-7d7fa50e5329 // indirect
-	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/oauth2 v0.29.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
