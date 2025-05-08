@@ -9,13 +9,8 @@ import (
 	"syscall"
 
 	"github.com/dorser/zzzxx/internal/gadget"
-	myoperators "github.com/dorser/zzzxx/internal/operators"
-	igoperators "github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
-	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/ebpf"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/localmanager"
-	ocihandler "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/oci-handler"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/runtime/local"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/utils/host"
+	"github.com/dorser/zzzxx/internal/operators"
+	"github.com/dorser/zzzxx/internal/runtime"
 )
 
 //go:embed build/trace_exec.tar
@@ -28,14 +23,6 @@ const (
 	traceExecGadgetImage = "github.com/dorser/zzzxxx/gadgets/trace_exec"
 	traceDnsGadgetImage  = "github.com/dorser/zzzxxx/gadgets/trace_dns"
 )
-
-func initRuntime() (*local.Runtime, error) {
-	runtime := local.New()
-	if err := runtime.Init(nil); err != nil {
-		return nil, fmt.Errorf("runtime init: %w", err)
-	}
-	return runtime, nil
-}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -50,48 +37,59 @@ func main() {
 		cancel()
 	}()
 
-	runtime, err := initRuntime()
+	// Initialize runtime manager
+	runtimeManager, err := runtime.NewManager()
 	if err != nil {
-		fmt.Printf("initializing ig runtime: %s", err)
+		fmt.Printf("initializing runtime manager: %w", err)
 		os.Exit(1)
 	}
-	defer runtime.Close()
+	defer runtimeManager.Close()
 
 	// Create operators
-	jsonOp := myoperators.NewJSONOperator()
-	traceExecOp := myoperators.NewTraceExecOperator()
+	jsonOp := operators.NewJSONOperator()
+	traceExecOp := operators.NewTraceExecOperator()
+	ociOp := operators.NewOCIHandler()
 
-	host.Init(host.Config{})
-	localManagerOp := localmanager.LocalManagerOperator
-	localManagerParams := localManagerOp.GlobalParamDescs().ToParams()
-
-	if err := localManagerOp.Init(localManagerParams); err != nil {
-		fmt.Printf("init local manager: %w", err)
-		os.Exit(1)
-	}
-	defer localManagerOp.Close()
-
-	// Create gadget contexts using the new function
-	execGadgetContext, err := gadget.CreateContext(ctx, traceExecBytes, traceExecGadgetImage,
-		[]igoperators.DataOperator{ocihandler.OciHandler, traceExecOp, jsonOp})
+	// Initialize local manager
+	localManagerOp, err := operators.NewLocalManager()
 	if err != nil {
-		fmt.Printf("creating exec gadget context: %s", err)
+		fmt.Printf("initializing local manager: %w", err)
 		os.Exit(1)
 	}
 
-	dnsGadgetContext, err := gadget.CreateContext(ctx, traceDnsBytes, traceDnsGadgetImage,
-		[]igoperators.DataOperator{ocihandler.OciHandler, localManagerOp, jsonOp})
+	// Create context managers with their respective operators
+	execContextManager := gadget.NewContextManager([]operators.DataOperator{
+		ociOp,
+		traceExecOp,
+		jsonOp,
+	})
+
+	dnsContextManager := gadget.NewContextManager([]operators.DataOperator{
+		ociOp,
+		localManagerOp,
+		jsonOp,
+	})
+
+	// Create gadget contexts
+	execGadgetContext, err := execContextManager.CreateContext(ctx, traceExecBytes, traceExecGadgetImage)
 	if err != nil {
-		fmt.Printf("creating dns gadget context: %s", err)
+		fmt.Printf("creating exec gadget context: %w", err)
 		os.Exit(1)
 	}
 
+	dnsGadgetContext, err := dnsContextManager.CreateContext(ctx, traceDnsBytes, traceDnsGadgetImage)
+	if err != nil {
+		fmt.Printf("creating dns gadget context: %w", err)
+		os.Exit(1)
+	}
+
+	// Run gadgets
 	params := map[string]string{
 		"operator.LocalManager.host": "true",
 	}
 
-	go runtime.RunGadget(dnsGadgetContext, nil, params)
-	go runtime.RunGadget(execGadgetContext, nil, nil)
+	go runtimeManager.RunGadget(dnsGadgetContext, params)
+	go runtimeManager.RunGadget(execGadgetContext, nil)
 
 	<-ctx.Done()
 	fmt.Println("Shutting down...")

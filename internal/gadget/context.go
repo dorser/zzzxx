@@ -5,14 +5,26 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dorser/zzzxx/internal/operators"
 	gadgetcontext "github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-context"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
 	"github.com/quay/claircore/pkg/tarfs"
 	orasoci "oras.land/oras-go/v2/content/oci"
 )
 
+// ContextManager handles the creation and management of gadget contexts
+type ContextManager struct {
+	operators []operators.DataOperator
+}
+
+// NewContextManager creates a new ContextManager with the given operators
+func NewContextManager(operators []operators.DataOperator) *ContextManager {
+	return &ContextManager{
+		operators: operators,
+	}
+}
+
 // CreateContext creates a new gadget context with the given configuration
-func CreateContext(ctx context.Context, gadgetBytes []byte, gadgetImageName string, dataOperators []operators.DataOperator) (*gadgetcontext.GadgetContext, error) {
+func (cm *ContextManager) CreateContext(ctx context.Context, gadgetBytes []byte, gadgetImage string) (*gadgetcontext.GadgetContext, error) {
 	// Create OCI target from gadget bytes
 	reader := bytes.NewReader(gadgetBytes)
 	fs, err := tarfs.New(reader)
@@ -28,8 +40,8 @@ func CreateContext(ctx context.Context, gadgetBytes []byte, gadgetImageName stri
 	// Create gadget context with operators
 	gadgetCtx := gadgetcontext.New(
 		ctx,
-		gadgetImageName,
-		gadgetcontext.WithDataOperators(dataOperators...),
+		gadgetImage,
+		gadgetcontext.WithDataOperators(cm.operators...),
 		gadgetcontext.WithOrasReadonlyTarget(target),
 	)
 
