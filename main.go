@@ -59,10 +59,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	kustoCluster := os.Getenv("KUSTO_CLUSTER_URL")
+	kustoDatabase := os.Getenv("KUSTO_DATABASE")
+
+	dnsKustoOp, _ := operators.NewKustoOperator(&operators.KustoConfig{
+		ClusterURL: kustoCluster,
+		Database:   kustoDatabase,
+		Table:      os.Getenv("KUSTO_DNS_TABLE"),
+		Mapping:    os.Getenv("KUSTO_DNS_MAPPING"),
+		Ctx:        ctx,
+	})
+
+	execKustoOp, _ := operators.NewKustoOperator(&operators.KustoConfig{
+		ClusterURL: kustoCluster,
+		Database:   kustoDatabase,
+		Table:      os.Getenv("KUSTO_EXEC_TABLE"),
+		Mapping:    os.Getenv("KUSTO_EXEC_MAPPING"),
+		Ctx:        ctx,
+	})
+
 	// Create context managers with their respective operators
 	execContextManager := gadget.NewContextManager([]operators.DataOperator{
 		ociOp,
 		traceExecOp,
+		execKustoOp,
 		jsonOp,
 	})
 
@@ -71,17 +91,19 @@ func main() {
 		traceDnsOp,
 		&socketenricher.SocketEnricher{},
 		localManagerOp,
+		dnsKustoOp,
 		jsonOp,
 	})
 
 	// Create gadget registry
-	registry := gadget.NewRegistry(execContextManager, runtimeManager)
+	registry := gadget.NewRegistry(nil, runtimeManager)
 
 	// Register gadgets
 	registry.Register("trace_exec", &gadget.GadgetConfig{
 		Bytes:     traceExecBytes,
 		ImageName: traceExecGadgetImage,
 		Params:    nil,
+		Context:   execContextManager,
 	})
 
 	registry.Register("trace_dns", &gadget.GadgetConfig{
