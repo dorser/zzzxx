@@ -70,26 +70,30 @@ func main() {
 		jsonOp,
 	})
 
-	// Create gadget contexts
-	execGadgetContext, err := execContextManager.CreateContext(ctx, traceExecBytes, traceExecGadgetImage)
-	if err != nil {
-		fmt.Printf("creating exec gadget context: %w", err)
+	// Create gadget registry
+	registry := gadget.NewRegistry(execContextManager, runtimeManager)
+
+	// Register gadgets
+	registry.Register("trace_exec", &gadget.GadgetConfig{
+		Bytes:     traceExecBytes,
+		ImageName: traceExecGadgetImage,
+		Params:    nil,
+	})
+
+	registry.Register("trace_dns", &gadget.GadgetConfig{
+		Bytes:     traceDnsBytes,
+		ImageName: traceDnsGadgetImage,
+		Params: map[string]string{
+			"operator.LocalManager.host": "true",
+		},
+		Context: dnsContextManager,
+	})
+
+	// Run all gadgets
+	if err := registry.RunAll(ctx); err != nil {
+		fmt.Printf("running gadgets: %w", err)
 		os.Exit(1)
 	}
-
-	dnsGadgetContext, err := dnsContextManager.CreateContext(ctx, traceDnsBytes, traceDnsGadgetImage)
-	if err != nil {
-		fmt.Printf("creating dns gadget context: %w", err)
-		os.Exit(1)
-	}
-
-	// Run gadgets
-	params := map[string]string{
-		"operator.LocalManager.host": "true",
-	}
-
-	go runtimeManager.RunGadget(dnsGadgetContext, params)
-	go runtimeManager.RunGadget(execGadgetContext, nil)
 
 	<-ctx.Done()
 	fmt.Println("Shutting down...")
