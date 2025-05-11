@@ -11,6 +11,7 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadget-service/api"
 	igoperators "github.com/inspektor-gadget/inspektor-gadget/pkg/operators"
 	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/ebpf"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/formatters"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/localmanager"
 	ocihandler "github.com/inspektor-gadget/inspektor-gadget/pkg/operators/oci-handler"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/operators/simple"
@@ -353,4 +354,8 @@ func NewLocalManager() (igoperators.DataOperator, error) {
 // NewOCIHandler creates and returns the OCI handler operator
 func NewOCIHandler() igoperators.DataOperator {
 	return ocihandler.OciHandler
+}
+
+func NewFormattersOperator() (igoperators.DataOperator, error) {
+	return formatters.FormattersOperator, nil
 }

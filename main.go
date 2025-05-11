@@ -78,11 +78,18 @@ func main() {
 		Ctx:        ctx,
 	})
 
+	formattersOp, err := operators.NewFormattersOperator()
+	if err != nil {
+		fmt.Printf("initializing formatters operator")
+		os.Exit(1)
+	}
+
 	// Create context managers with their respective operators
 	execContextManager := gadget.NewContextManager([]operators.DataOperator{
 		ociOp,
 		traceExecOp,
 		execKustoOp,
+		formattersOp,
 		jsonOp,
 	})
 
@@ -92,6 +99,7 @@ func main() {
 		&socketenricher.SocketEnricher{},
 		localManagerOp,
 		dnsKustoOp,
+		formattersOp,
 		jsonOp,
 	})
 
